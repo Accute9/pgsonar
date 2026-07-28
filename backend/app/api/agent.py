@@ -16,7 +16,7 @@ def list_tables():
     SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
     if not SUPABASE_DB_URL:
         return (
-                "[MOCK DATA — set SUPABASE_DB_URL to query your real project]\n"
+                "[MOCK DATA — set SUPABASE_DB_URL to query your real pr oject]\n"
                 "orders(id: int, user_id: int, amount: numeric, created_at: timestamptz)\n"
                 "users(id: int, email: text, signup_date: date)"
             )
@@ -36,7 +36,7 @@ def list_tables():
  
     return "\n".join(f"{t}({', '.join(cols)})" for t, cols in tables.items())
 
-print(list_tables())
+# print(list_tables())
 
 @mcp.tool
 def get_column_stats(col_name: str, table_name: str):
@@ -57,19 +57,66 @@ def get_column_stats(col_name: str, table_name: str):
     query = sql.SQL("""
         SELECT COUNT({col}) AS count, AVG({col}) AS mean,
              STDDEV({col}) AS stddev, MIN({col}) AS min,
-        MAX({col}) AS max FROM {table};
+        MAX({col}) AS max, PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY {col}) AS q1, PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY {col}) AS q3 FROM {table};
         """).format(col=sql.Identifier(col_name), table=sql.Identifier(table_name))
     with psycopg2.connect(SUPABASE_DB_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(query)
-            count, mean, stddev, min_val, max_val = cur.fetchone()
+            count, mean, stddev, min_val, max_val, q1, q3 = cur.fetchone()
             return (
                 f"Stats for {col_name} in {table_name}:\n"
                 f"count: {count}\n"
                 f"mean: {mean}\n"
                 f"stddev: {stddev}\n"
                 f"min: {min_val}\n"
-                f"max: {max_val}"
+                f"max: {max_val}\n",
+                f"q1: {q1}\n",
+                f"q3: {q3}"
             )
 
 print(get_column_stats("amount", "orders"))
+
+@mcp.tool
+def check_iqr_outlier(col_name: str, table_name: str):
+    """
+    Checks for outliers in a given column of a table using the IQR method
+    """
+    SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
+    if not SUPABASE_DB_URL:
+        return (
+                "[MOCK DATA — set SUPABASE_DB_URL to query your real project]\n"
+                f"Outliers for {col_name} in {table_name}:\n"
+                "Lower bound: 20\n"
+                "Upper bound: 80\n"
+                "Outliers: [5, 90, 100]"
+            )
+    query = sql.SQL("""
+        WITH stats AS (
+            SELECT
+                PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY {col}) AS q1,
+                PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY {col}) AS q3
+            FROM {table}
+        )
+        SELECT q1, q3 FROM stats;
+    """).format(col=sql.Identifier(col_name), table=sql.Identifier(table_name))
+    with psycopg2.connect(SUPABASE_DB_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            q1, q3 = cur.fetchone()
+            iqr = q3 - q1
+            lower_bound = q1 - 1.5 * iqr
+            upper_bound = q3 + 1.5 * iqr
+            outlier_query = sql.SQL("""
+                SELECT {col} FROM {table}
+                WHERE {col} < %s OR {col} > %s;
+            """).format(col=sql.Identifier(col_name), table=sql.Identifier(table_name))
+            cur.execute(outlier_query, (lower_bound, upper_bound))
+            outliers = [row[0] for row in cur.fetchall()]
+            return (
+                f"Outliers for {col_name} in {table_name}:\n"
+                f"Lower bound: {lower_bound}\n"
+                f"Upper bound: {upper_bound}\n"
+                f"Outliers: {outliers}"
+            )
+
+print(check_iqr_outlier("amount", "orders"))
