@@ -159,3 +159,39 @@ def check_zscore_outlier(col_name: str, table_name: str, threshold: float = 3.0)
             )
 
 print(check_zscore_outlier("amount", "orders", 3.0))
+
+@mcp.tool
+def check_row_count_trend(table_name: str, date_col: str, window_days: int):
+    """
+    Checks for trends in row counts over time for a given table and date column
+    """
+    SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
+    if not SUPABASE_DB_URL:
+        return (
+                "[MOCK DATA — set SUPABASE_DB_URL to query your real project]\n"
+                f"Row count trend for {table_name} based on {date_col}:\n"
+                "2023-01-01: 100\n"
+                "2023-01-02: 120\n"
+                "2023-01-03: 90\n"
+                "2023-01-04: 150\n"
+            )
+    query = sql.SQL("""
+        SELECT DATE_TRUNC('day', {date_col}) AS day, COUNT(*) AS row_count
+        FROM {table}
+        WHERE {date_col} >= NOW() - INTERVAL %s
+        GROUP BY day
+        ORDER BY day;
+    """).format(
+        date_col=sql.Identifier(date_col),
+        table=sql.Identifier(table_name),
+    )
+    with psycopg2.connect(SUPABASE_DB_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (f"{window_days} days",))
+            rows = cur.fetchall()
+            trend = "\n".join(f"{row[0].date()}: {row[1]}" for row in rows)
+            return (
+                f"Row count trend for {table_name} based on {date_col}:\n{trend}"
+            )
+
+print(check_row_count_trend("orders", "created_at", 7))
