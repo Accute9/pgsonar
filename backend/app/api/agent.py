@@ -120,3 +120,42 @@ def check_iqr_outlier(col_name: str, table_name: str):
             )
 
 print(check_iqr_outlier("amount", "orders"))
+
+@mcp.tool
+def check_zscore_outlier(col_name: str, table_name: str, threshold: float = 3.0):
+    """
+    Checks for outliers in a given column of a table using the Z-score method
+    """
+    SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
+    if not SUPABASE_DB_URL:
+        return (
+                "[MOCK DATA — set SUPABASE_DB_URL to query your real project]\n"
+                f"Outliers for {col_name} in {table_name}:\n"
+                f"Threshold: {threshold}\n"
+                "Outliers: [5, 90, 100]"
+            )
+    query = sql.SQL("""
+            SELECT AVG({col}) AS mean, STDDEV({col}) AS stddev FROM {table}
+        """).format(col=sql.Identifier(col_name), table=sql.Identifier(table_name))
+    with psycopg2.connect(SUPABASE_DB_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            mean, stddev = cur.fetchone()
+            if not stddev:
+                return (
+                    f"Cannot compute z-scores for {col_name} in {table_name}: "
+                    "standard deviation is zero or undefined (no variance in the data)."
+                )
+            zscore_query = sql.SQL("""
+                SELECT {col} FROM {table}
+                WHERE ABS(({col} - %s) / %s) > %s;
+            """).format(col=sql.Identifier(col_name), table=sql.Identifier(table_name))
+            cur.execute(zscore_query, (mean, stddev, threshold))
+            outliers = [row[0] for row in cur.fetchall()]
+            return (
+                f"Outliers for {col_name} in {table_name}:\n"
+                f"Threshold: {threshold}\n"
+                f"Outliers: {outliers}"
+            )
+
+print(check_zscore_outlier("amount", "orders", 3.0))
