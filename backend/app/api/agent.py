@@ -1,197 +1,79 @@
-from fastmcp import FastMCP
-from dotenv import load_dotenv
+import asyncio
 import os
-import psycopg2
-from psycopg2 import sql
-from langchain.agents import create_agent
+from dotenv import load_dotenv
+from fastmcp import Client
+from google import genai
+from google.genai import types
 
-mcp = FastMCP("supabase-anomaly-checks")
+from mcp_tools import mcp
+
 load_dotenv()
 
-@mcp.tool
-def list_tables():
-    """
-    List all data tables in datbase
-    """
-    SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
-    if not SUPABASE_DB_URL:
-        return (
-                "[MOCK DATA — set SUPABASE_DB_URL to query your real pr oject]\n"
-                "orders(id: int, user_id: int, amount: numeric, created_at: timestamptz)\n"
-                "users(id: int, email: text, signup_date: date)"
-            )
-    query = """
-        SELECT table_name, column_name, data_type
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-        ORDER BY table_name, ordinal_position;
-    """
-    with psycopg2.connect(SUPABASE_DB_URL) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query)
-            rows = cur.fetchall()
-    tables = {}
-    for table_name, column_name, data_type in rows:
-        tables.setdefault(table_name, []).append(f"{column_name}: {data_type}")
- 
-    return "\n".join(f"{t}({', '.join(cols)})" for t, cols in tables.items())
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+MAX_TURNS = 8
 
-# print(list_tables())
+SYSTEM_INSTRUCTION = (
+    "You are a data-quality agent for a Postgres database. You have tools to list "
+    "tables, compute column statistics, and detect outliers or unusual row-count "
+    "trends. Investigate the schema for data anomalies, then summarize what you "
+    "found in plain English. If nothing looks anomalous, say so."
+)
 
-@mcp.tool
-def get_column_stats(col_name: str, table_name: str):
-    """
-    Gets key numerical stat
-    """
-    SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
-    if not SUPABASE_DB_URL:
-        return (
-                "[MOCK DATA — set SUPABASE_DB_URL to query your real project]\n"
-                f"Stats for {col_name} in {table_name}:\n"
-                "count: 1000\n"
-                "mean: 50.5\n"
-                "stddev: 10.2\n"
-                "min: 1\n"
-                "max: 100"
-            )
-    query = sql.SQL("""
-        SELECT COUNT({col}) AS count, AVG({col}) AS mean,
-             STDDEV({col}) AS stddev, MIN({col}) AS min,
-        MAX({col}) AS max, PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY {col}) AS q1, PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY {col}) AS q3 FROM {table};
-        """).format(col=sql.Identifier(col_name), table=sql.Identifier(table_name))
-    with psycopg2.connect(SUPABASE_DB_URL) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query)
-            count, mean, stddev, min_val, max_val, q1, q3 = cur.fetchone()
-            return (
-                f"Stats for {col_name} in {table_name}:\n"
-                f"count: {count}\n"
-                f"mean: {mean}\n"
-                f"stddev: {stddev}\n"
-                f"min: {min_val}\n"
-                f"max: {max_val}\n",
-                f"q1: {q1}\n",
-                f"q3: {q3}"
-            )
 
-print(get_column_stats("amount", "orders"))
-
-@mcp.tool
-def check_iqr_outlier(col_name: str, table_name: str):
-    """
-    Checks for outliers in a given column of a table using the IQR method
-    """
-    SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
-    if not SUPABASE_DB_URL:
-        return (
-                "[MOCK DATA — set SUPABASE_DB_URL to query your real project]\n"
-                f"Outliers for {col_name} in {table_name}:\n"
-                "Lower bound: 20\n"
-                "Upper bound: 80\n"
-                "Outliers: [5, 90, 100]"
-            )
-    query = sql.SQL("""
-        WITH stats AS (
-            SELECT
-                PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY {col}) AS q1,
-                PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY {col}) AS q3
-            FROM {table}
-        )
-        SELECT q1, q3 FROM stats;
-    """).format(col=sql.Identifier(col_name), table=sql.Identifier(table_name))
-    with psycopg2.connect(SUPABASE_DB_URL) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query)
-            q1, q3 = cur.fetchone()
-            iqr = q3 - q1
-            lower_bound = q1 - 1.5 * iqr
-            upper_bound = q3 + 1.5 * iqr
-            outlier_query = sql.SQL("""
-                SELECT {col} FROM {table}
-                WHERE {col} < %s OR {col} > %s;
-            """).format(col=sql.Identifier(col_name), table=sql.Identifier(table_name))
-            cur.execute(outlier_query, (lower_bound, upper_bound))
-            outliers = [row[0] for row in cur.fetchall()]
-            return (
-                f"Outliers for {col_name} in {table_name}:\n"
-                f"Lower bound: {lower_bound}\n"
-                f"Upper bound: {upper_bound}\n"
-                f"Outliers: {outliers}"
-            )
-
-print(check_iqr_outlier("amount", "orders"))
-
-@mcp.tool
-def check_zscore_outlier(col_name: str, table_name: str, threshold: float = 3.0):
-    """
-    Checks for outliers in a given column of a table using the Z-score method
-    """
-    SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
-    if not SUPABASE_DB_URL:
-        return (
-                "[MOCK DATA — set SUPABASE_DB_URL to query your real project]\n"
-                f"Outliers for {col_name} in {table_name}:\n"
-                f"Threshold: {threshold}\n"
-                "Outliers: [5, 90, 100]"
-            )
-    query = sql.SQL("""
-            SELECT AVG({col}) AS mean, STDDEV({col}) AS stddev FROM {table}
-        """).format(col=sql.Identifier(col_name), table=sql.Identifier(table_name))
-    with psycopg2.connect(SUPABASE_DB_URL) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query)
-            mean, stddev = cur.fetchone()
-            if not stddev:
-                return (
-                    f"Cannot compute z-scores for {col_name} in {table_name}: "
-                    "standard deviation is zero or undefined (no variance in the data)."
-                )
-            zscore_query = sql.SQL("""
-                SELECT {col} FROM {table}
-                WHERE ABS(({col} - %s) / %s) > %s;
-            """).format(col=sql.Identifier(col_name), table=sql.Identifier(table_name))
-            cur.execute(zscore_query, (mean, stddev, threshold))
-            outliers = [row[0] for row in cur.fetchall()]
-            return (
-                f"Outliers for {col_name} in {table_name}:\n"
-                f"Threshold: {threshold}\n"
-                f"Outliers: {outliers}"
-            )
-
-print(check_zscore_outlier("amount", "orders", 3.0))
-
-@mcp.tool
-def check_row_count_trend(table_name: str, date_col: str, window_days: int):
-    """
-    Checks for trends in row counts over time for a given table and date column
-    """
-    SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
-    if not SUPABASE_DB_URL:
-        return (
-                "[MOCK DATA — set SUPABASE_DB_URL to query your real project]\n"
-                f"Row count trend for {table_name} based on {date_col}:\n"
-                "2023-01-01: 100\n"
-                "2023-01-02: 120\n"
-                "2023-01-03: 90\n"
-                "2023-01-04: 150\n"
-            )
-    query = sql.SQL("""
-        SELECT DATE_TRUNC('day', {date_col}) AS day, COUNT(*) AS row_count
-        FROM {table}
-        WHERE {date_col} >= NOW() - INTERVAL %s
-        GROUP BY day
-        ORDER BY day;
-    """).format(
-        date_col=sql.Identifier(date_col),
-        table=sql.Identifier(table_name),
+def _mcp_tool_to_declaration(tool) -> types.FunctionDeclaration:
+    return types.FunctionDeclaration(
+        name=tool.name,
+        description=tool.description or "",
+        parameters=tool.inputSchema,
     )
-    with psycopg2.connect(SUPABASE_DB_URL) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, (f"{window_days} days",))
-            rows = cur.fetchall()
-            trend = "\n".join(f"{row[0].date()}: {row[1]}" for row in rows)
-            return (
-                f"Row count trend for {table_name} based on {date_col}:\n{trend}"
-            )
 
-print(check_row_count_trend("orders", "created_at", 7))
+
+def _tool_result_text(result) -> str:
+    if getattr(result, "data", None) is not None:
+        return str(result.data)
+    return "\n".join(getattr(block, "text", str(block)) for block in result.content)
+
+
+async def run_agent(task: str) -> str:
+    client = genai.Client(api_key=GEMINI_API_KEY)
+
+    async with Client(mcp) as mcp_client:
+        mcp_tools = await mcp_client.list_tools()
+        config = types.GenerateContentConfig(
+            system_instruction=SYSTEM_INSTRUCTION,
+            tools=[types.Tool(function_declarations=[_mcp_tool_to_declaration(t) for t in mcp_tools])],
+        )
+
+        messages = [types.Content(role="user", parts=[types.Part(text=task)])]
+
+        for _ in range(MAX_TURNS):
+            response = await client.aio.models.generate_content(
+                model=MODEL,
+                contents=messages,
+                config=config,
+            )
+            candidate = response.candidates[0]
+            messages.append(candidate.content)
+
+            calls = [part.function_call for part in candidate.content.parts if part.function_call]
+            if not calls:
+                return response.text
+
+            response_parts = []
+            for call in calls:
+                print(f"[tool call] {call.name}({dict(call.args)})")
+                result = await mcp_client.call_tool(call.name, dict(call.args))
+                response_parts.append(
+                    types.Part.from_function_response(
+                        name=call.name,
+                        response={"result": _tool_result_text(result)},
+                    )
+                )
+            messages.append(types.Content(role="user", parts=response_parts))
+
+        return "Stopped after max turns without a final answer."
+
+
+if __name__ == "__main__":
+    print(asyncio.run(run_agent("Check the orders table for anomalies.")))
