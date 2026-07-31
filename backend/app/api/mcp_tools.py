@@ -195,3 +195,44 @@ def check_row_count_trend(table_name: str, date_col: str, window_days: int):
 
 # print(check_row_count_trend("orders", "created_at", 7))
 
+@mcp.tool
+def freshness_check(table_name: str, date_col: str, freshness_threshold_days: int):
+    """
+    Checks if the data in a given table is fresh based on the latest date in a specified column
+    """
+    SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
+    if not SUPABASE_DB_URL:
+        return (
+                "[MOCK DATA — set SUPABASE_DB_URL to query your real project]\n"
+                f"Freshness check for {table_name} based on {date_col}:\n"
+                "Latest date: 2023-01-04\n"
+                "Freshness threshold: 7 days\n"
+                "Data is fresh."
+            )
+    query = sql.SQL("""
+        SELECT MAX({date_col}) AS latest_date
+        FROM {table};
+    """).format(
+        date_col=sql.Identifier(date_col),
+        table=sql.Identifier(table_name),
+    )
+    with psycopg2.connect(SUPABASE_DB_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT NOW();")
+            current_time = cur.fetchone()[0]
+            cur.execute(query)
+            latest_date = cur.fetchone()[0]
+            if not latest_date:
+                return (
+                    f"No data found in {table_name} for freshness check."
+                )
+            days_since_latest = (current_time - latest_date).days
+            is_fresh = days_since_latest <= freshness_threshold_days
+            return (
+                f"Freshness check for {table_name} based on {date_col}:\n"
+                f"Latest date: {latest_date.date()}\n"
+                f"Freshness threshold: {freshness_threshold_days} days\n"
+                f"Data is {'fresh' if is_fresh else 'stale'}."
+            )
+
+# print(freshness_check("orders", "created_at", 7))
