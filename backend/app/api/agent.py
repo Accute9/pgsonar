@@ -10,7 +10,7 @@ from mcp_tools import mcp
 load_dotenv()
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 MAX_TURNS = 8
 
 SYSTEM_INSTRUCTION = (
@@ -18,14 +18,25 @@ SYSTEM_INSTRUCTION = (
     "tables, compute column statistics, and detect outliers or unusual row-count "
     "trends. Investigate the schema for data anomalies, then summarize what you "
     "found in plain English. If nothing looks anomalous, say so."
+    "For every tool you use, include a short summary of why you are using it and what you are looking for."
+    "List out each of the anomalous data pointers."
+
+    
 )
+
+# async def test():
+#     client = genai.Client(api_key=GEMINI_API_KEY)
+#     async with Client(mcp) as mcp_client:
+#         mcp_tools = await mcp_client.list_tools()
+#         return mcp_tools
+
 
 
 def _mcp_tool_to_declaration(tool) -> types.FunctionDeclaration:
     return types.FunctionDeclaration(
         name=tool.name,
         description=tool.description or "",
-        parameters=tool.inputSchema,
+        parameters_json_schema=tool.inputSchema,
     )
 
 
@@ -37,7 +48,6 @@ def _tool_result_text(result) -> str:
 
 async def run_agent(task: str) -> str:
     client = genai.Client(api_key=GEMINI_API_KEY)
-
     async with Client(mcp) as mcp_client:
         mcp_tools = await mcp_client.list_tools()
         config = types.GenerateContentConfig(
@@ -77,3 +87,4 @@ async def run_agent(task: str) -> str:
 
 if __name__ == "__main__":
     print(asyncio.run(run_agent("Check the orders table for anomalies.")))
+    # print(asyncio.run(test()))

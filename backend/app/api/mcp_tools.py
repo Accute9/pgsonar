@@ -40,7 +40,7 @@ def list_tables():
 @mcp.tool
 def get_column_stats(col_name: str, table_name: str):
     """
-    Gets key numerical stat
+    Gets key numerical statistics for given column in a table
     """
     SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
     if not SUPABASE_DB_URL:
