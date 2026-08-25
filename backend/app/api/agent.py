@@ -19,7 +19,7 @@ SYSTEM_INSTRUCTION = (
     "trends, and observe changes in schema. Investigate the schema for data anomalies, then summarize what you "
     "found in plain English. If nothing looks anomalous, say so."
     "For every tool you use, include a short summary of why you are using it and what you are looking for."
-    "List out each of the anomalous data pointers."
+    "List out each of the anomalous data pointers. IF applicable, attempt to link anomalies to recent schema changes. If you find anomalies, suggest a course of action to fix them."
 
     
 )
