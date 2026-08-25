@@ -235,4 +235,28 @@ def freshness_check(table_name: str, date_col: str, freshness_threshold_days: in
                 f"Data is {'fresh' if is_fresh else 'stale'}."
             )
 
-# print(freshness_check("orders", "created_at", 7))
+@mcp.tool
+def check_recent_schema_changes(table: str, around_timestamp: str, window_hours: int = 36):
+    """
+    Checks for recent schema changes in a given table within a specified time window
+    """
+    query = sql.SQL("""
+        SELECT event_time, command_tag, object_type, object_identity
+        FROM schema_change_log
+        WHERE object_identity LIKE %s
+          AND event_time BETWEEN %s::timestamptz - INTERVAL %s
+                              AND %s::timestamptz + INTERVAL %s
+        ORDER BY event_time;
+        """)
+    params = (f"public.{table}%", around_timestamp, f"{window_hours} hours",
+              around_timestamp, f"{window_hours} hours")
+
+    conn = psycopg2.connect(os.environ.get("SUPABASE_DB_URL"))
+    cur = conn.cursor()
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+print(check_recent_schema_changes("orders", "2026-08-05T00:00:00Z"))
