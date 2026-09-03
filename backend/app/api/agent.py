@@ -11,7 +11,7 @@ load_dotenv()
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
-MAX_TURNS = 8
+MAX_TURNS = 15
 
 SYSTEM_INSTRUCTION = (
     "You are a data-quality agent for a Postgres database. You have tools to list "
@@ -19,7 +19,8 @@ SYSTEM_INSTRUCTION = (
     "trends, and observe changes in schema. Investigate the schema for data anomalies, then summarize what you "
     "found in plain English. If nothing looks anomalous, say so."
     "For every tool you use, include a short summary of why you are using it and what you are looking for."
-    "List out each of the anomalous data pointers. IF applicable, attempt to link anomalies to recent schema changes. If you find anomalies, suggest a course of action to fix them."
+    "IF applicable, attempt to link anomalies to recent schema changes. If you find anomalies, suggest a course of action to fix them."
+    "Finally, list all anomalous points from each table."
 
     
 )

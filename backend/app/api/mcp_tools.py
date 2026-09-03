@@ -259,4 +259,12 @@ def check_recent_schema_changes(table: str, around_timestamp: str, window_hours:
     conn.close()
     return rows
 
-print(check_recent_schema_changes("orders", "2026-08-05T00:00:00Z"))
+# if __name__ == "__main__":
+#     # Example usage
+#     print(list_tables())
+#     print(get_column_stats("amount", "orders"))
+#     print(check_iqr_outlier("amount", "orders"))
+#     print(check_zscore_outlier("amount", "orders", 3.0))
+#     print(check_row_count_trend("orders", "created_at", 7))
+#     print(freshness_check("orders", "created_at", 7))
+#     print(check_recent_schema_changes("orders", "2026-08-05T00:00:00Z"))
