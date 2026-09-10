@@ -1,0 +1,6 @@
+fastmcp==3.4.4
+python-dotenv==1.2.2
+psycopg2==2.9.12
+langgraph==1.2.9
+langchain-mcp-adapters==0.3.0
+langchain-google-genai==4.4.0
