@@ -10,7 +10,7 @@ from langchain_mcp_adapters.tools import load_mcp_tools
 from langgraph.graph import START, StateGraph, add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from mcp_tools import mcp
+from mcp_tools import check_rls, mcp
 
 load_dotenv()
 
@@ -25,7 +25,7 @@ SYSTEM_INSTRUCTION = (
     "found in plain English. If nothing looks anomalous, say so."
     "For every tool you use, include a short summary of why you are using it and what you are looking for."
     "IF applicable, attempt to link anomalies to recent schema changes. If you find anomalies, suggest a course of action to fix them."
-    "Finally, list all anomalous points from each table."
+    "Finally, list all anomalous points from each table, and recommend to enable RLS for all tables without it, and to add a column-level audit log for all tables with sensitive data."
 )
 
 # A separate step, run before any tool is called, that has the same underlying model
@@ -79,6 +79,17 @@ def _build_graph(tools: list[BaseTool]):
             "messages": [SystemMessage(content=f"Investigation plan from the planning step:\n{plan}")],
         }
 
+    async def rls_check_node(state: AgentState) -> dict:
+        # Deterministic pre-check, run once before any tool-calling turn -- not something
+        # the LLM chooses to run, so it can't be skipped or forgotten.
+        result = await asyncio.to_thread(check_rls)
+        print(f"[rls check]\n{result}\n")
+        return {
+            "messages": [
+                SystemMessage(content=f"Automated RLS check (ran before investigation, not model-invoked):\n{result}")
+            ]
+        }
+
     async def agent_node(state: AgentState) -> dict:
         response = await acting_llm.ainvoke(state["messages"])
         for call in response.tool_calls:
@@ -86,10 +97,12 @@ def _build_graph(tools: list[BaseTool]):
         return {"messages": [response]}
 
     graph = StateGraph(AgentState)
+    graph.add_node("rls_check", rls_check_node)
     graph.add_node("planner", plan_node)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", ToolNode(tools))
-    graph.add_edge(START, "planner")
+    graph.add_edge(START, "rls_check")
+    graph.add_edge("rls_check", "planner")
     graph.add_edge("planner", "agent")
     graph.add_conditional_edges("agent", tools_condition)
     graph.add_edge("tools", "agent")
@@ -105,11 +118,11 @@ async def run_agent(task: str) -> str:
             "messages": [SystemMessage(content=SYSTEM_INSTRUCTION), HumanMessage(content=task)],
             "plan": "",
         }
-        # +2 for the planner step and its edge into the agent; the rest covers the
-        # agent/tools ping-pong, mirroring the old MAX_TURNS-bounded loop.
+        # +4 for the rls_check and planner steps and their edges into the next node;
+        # the rest covers the agent/tools ping-pong, mirroring the old MAX_TURNS-bounded loop.
         final_state = await app.ainvoke(
             initial_state,
-            config={"recursion_limit": MAX_TURNS * 2 + 2},
+            config={"recursion_limit": MAX_TURNS * 2 + 4},
         )
 
         final_message = final_state["messages"][-1]

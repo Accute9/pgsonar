@@ -259,6 +259,37 @@ def check_recent_schema_changes(table: str, around_timestamp: str, window_hours:
     conn.close()
     return rows
 
+def check_rls():
+    """
+    Checks whether Row-Level Security (RLS) is enabled for each table in the public schema
+    """
+    SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
+    if not SUPABASE_DB_URL:
+        return (
+                "[MOCK DATA — set SUPABASE_DB_URL to query your real project]\n"
+                "orders: RLS disabled\n"
+                "users: RLS enabled"
+            )
+    query = """
+        SELECT relname, relrowsecurity
+        FROM pg_class
+        WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace
+        ORDER BY relname;
+    """
+    with psycopg2.connect(SUPABASE_DB_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            rows = cur.fetchall()
+    if not rows:
+        return "No tables found in public schema."
+    lines = [f"{table}: RLS {'enabled' if enabled else 'disabled'}" for table, enabled in rows]
+    missing = [table for table, enabled in rows if not enabled]
+    summary = "\n".join(lines)
+    if missing:
+        summary += f"\n\nTables without RLS: {', '.join(missing)}"
+    return summary
+
+
 # if __name__ == "__main__":
 #     # Example usage
 #     print(list_tables())
