@@ -1,4 +1,5 @@
-from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 import asyncio
@@ -11,6 +12,15 @@ log = logging.getLogger("pgsonar")
 
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://127.0.0.1:5500"],
+    allow_credentials=True,
+    allow_origin_regex="http://127.0.0.1:.*",
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
 
 
 @app.get("/")

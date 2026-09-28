@@ -364,4 +364,37 @@
   els.mock.checked = params.has("mock");
   els.run.addEventListener("click", function () { if (running) stop(); else start(); });
   if (params.has("autorun")) start();
+
+  /* PRACTICE: a second, simpler entry point that talks to EventSource directly instead
+   * of going through start()/runLive(). Not wired to any button right now -- both this
+   * and els.run would otherwise fire two scans per click. Call scan() from the console
+   * to try it, or swap it into the els.run listener above once you're ready. */
+//   function scan() {
+//     const eventSource = new EventSource(API + "/scan");
+
+//     ["rls", "plan", "tool_call", "tool_result", "finding", "summary"].forEach((name) => {
+//       eventSource.addEventListener(name, (event) => {
+//         dispatch(name, JSON.parse(event.data));
+//       });
+//     });
+
+//     eventSource.addEventListener("done", (event) => {
+//       dispatch("done", JSON.parse(event.data));
+//       eventSource.close();   // stop it here, or EventSource reconnects and reruns the scan
+//     });
+
+//     eventSource.addEventListener("error", (event) => {
+//       // The browser fires its own data-less "error" event on connection failures (server
+//       // down, non-200 status, etc). Only a real event: error from the backend carries JSON.
+//       if (event.data === undefined) {
+//         dispatch("error", { message: "Lost connection to the backend." });
+//       } else {
+//         dispatch("error", JSON.parse(event.data));
+//       }
+//       eventSource.close();
+//     });
+
+//     return eventSource;
+//   }
+//   window.scan = scan;   // exposed for console/manual testing only
 })();
