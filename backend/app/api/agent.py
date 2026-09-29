@@ -7,16 +7,22 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.tools import BaseTool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mcp_adapters.tools import load_mcp_tools
+from langgraph.errors import GraphRecursionError
 from langgraph.graph import START, StateGraph, add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from mcp_tools import check_rls, mcp
+from mcp_tools import format_rls_status, get_rls_status, mcp
 
 load_dotenv()
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 MAX_TURNS = 15
+# +4 for the rls_check and planner steps and their edges into the next node;
+# the rest covers the agent/tools ping-pong, mirroring the old MAX_TURNS-bounded loop.
+RECURSION_LIMIT = MAX_TURNS * 2 + 4
+# Tool output is sent to the browser verbatim; outlier lists can be huge, so cap it.
+MAX_TOOL_OUTPUT_CHARS = 4000
 
 SYSTEM_INSTRUCTION = (
     "You are a data-quality agent for a Postgres database. You have tools to list "
@@ -48,6 +54,7 @@ PLANNER_INSTRUCTION = (
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     plan: str
+    rls: list[dict]  # [{"name": table, "rls": enabled}], set by the rls_check node
 
 
 def _format_tool_catalog(tools: list[BaseTool]) -> str:
@@ -82,9 +89,11 @@ def _build_graph(tools: list[BaseTool]):
     async def rls_check_node(state: AgentState) -> dict:
         # Deterministic pre-check, run once before any tool-calling turn -- not something
         # the LLM chooses to run, so it can't be skipped or forgotten.
-        result = await asyncio.to_thread(check_rls)
+        rows, is_mock = await asyncio.to_thread(get_rls_status)
+        result = format_rls_status(rows, is_mock)
         print(f"[rls check]\n{result}\n")
         return {
+            "rls": [{"name": table, "rls": enabled} for table, enabled in rows],
             "messages": [
                 SystemMessage(content=f"Automated RLS check (ran before investigation, not model-invoked):\n{result}")
             ]
@@ -109,20 +118,22 @@ def _build_graph(tools: list[BaseTool]):
     return graph.compile()
 
 
+def _initial_state(task: str) -> AgentState:
+    return {
+        "messages": [SystemMessage(content=SYSTEM_INSTRUCTION), HumanMessage(content=task)],
+        "plan": "",
+        "rls": [],
+    }
+
+
 async def run_agent(task: str) -> str:
     async with Client(mcp) as mcp_client:
         tools = await load_mcp_tools(mcp_client.session)
         app = _build_graph(tools)
 
-        initial_state: AgentState = {
-            "messages": [SystemMessage(content=SYSTEM_INSTRUCTION), HumanMessage(content=task)],
-            "plan": "",
-        }
-        # +4 for the rls_check and planner steps and their edges into the next node;
-        # the rest covers the agent/tools ping-pong, mirroring the old MAX_TURNS-bounded loop.
         final_state = await app.ainvoke(
-            initial_state,
-            config={"recursion_limit": MAX_TURNS * 2 + 4},
+            _initial_state(task),
+            config={"recursion_limit": RECURSION_LIMIT},
         )
 
         final_message = final_state["messages"][-1]
@@ -131,5 +142,81 @@ async def run_agent(task: str) -> str:
         return "Stopped after max turns without a final answer."
 
 
-if __name__ == "__main__":
-    print(asyncio.run(run_agent("Check the orders table for anomalies.")))
+def _content_text(content) -> str:
+    """Tool message content is either a plain string or a list of content blocks."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+        return "\n".join(parts)
+    return str(content)
+
+
+def _truncate(text: str, limit: int = MAX_TOOL_OUTPUT_CHARS) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n... [{len(text) - limit} more characters truncated]"
+
+
+def _events_for(node: str, delta: dict):
+    """Translate one finished graph node into zero or more (event_name, payload) pairs.
+
+    Event names and payload shapes are the contract documented at the top of frontend/app.js.
+    """
+    if node == "rls_check":
+        yield "rls", {"tables": delta.get("rls", [])}
+    elif node == "planner":
+        yield "plan", {"text": delta.get("plan", "")}
+    elif node == "agent":
+        for message in delta.get("messages", []):
+            if message.tool_calls:
+                for call in message.tool_calls:
+                    yield "tool_call", {"id": call["id"], "name": call["name"], "args": call["args"]}
+            else:
+                # No tool calls means the model is done: this message is the final report.
+                yield "summary", {"text": message.text}
+    elif node == "tools":
+        for message in delta.get("messages", []):
+            yield "tool_result", {
+                "id": message.tool_call_id,
+                "output": _truncate(_content_text(message.content)),
+            }
+
+
+async def stream_agent(task: str):
+    """Run the agent, yielding (event_name, payload) pairs as each graph step finishes.
+
+    The last pair is always either ("done", {}) or ("error", {...}). Unexpected exceptions
+    are not caught here; the caller (the route) decides how to report them.
+    """
+    if not GEMINI_API_KEY:
+        yield "error", {"message": "GEMINI_API_KEY is not configured on the server."}
+        return
+
+    try:
+        async with Client(mcp) as mcp_client:
+            tools = await load_mcp_tools(mcp_client.session)
+            app = _build_graph(tools)
+            # stream_mode="updates" yields {node_name: state_changes} each time a node finishes.
+            async for update in app.astream(
+                _initial_state(task),
+                config={"recursion_limit": RECURSION_LIMIT},
+                stream_mode="updates",
+            ):
+                for node, delta in update.items():
+                    for event in _events_for(node, delta or {}):
+                        yield event
+    except GraphRecursionError:
+        yield "error", {"message": "The agent hit its step limit before finishing. Please try again."}
+        return
+
+    yield "done", {}
+
+
+# if __name__ == "__main__":
+    # print(asyncio.run(run_agent("Check the orders table for anomalies.")))

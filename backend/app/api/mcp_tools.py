@@ -68,8 +68,8 @@ def get_column_stats(col_name: str, table_name: str):
                 f"mean: {mean}\n"
                 f"stddev: {stddev}\n"
                 f"min: {min_val}\n"
-                f"max: {max_val}\n",
-                f"q1: {q1}\n",
+                f"max: {max_val}\n"
+                f"q1: {q1}\n"
                 f"q3: {q3}"
             )
 
@@ -259,17 +259,14 @@ def check_recent_schema_changes(table: str, around_timestamp: str, window_hours:
     conn.close()
     return rows
 
-def check_rls():
+def get_rls_status():
     """
-    Checks whether Row-Level Security (RLS) is enabled for each table in the public schema
+    Returns ([(table_name, rls_enabled), ...], is_mock) for the public schema.
+    Structured form of check_rls(), so callers can render it or format it for the model.
     """
     SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
     if not SUPABASE_DB_URL:
-        return (
-                "[MOCK DATA — set SUPABASE_DB_URL to query your real project]\n"
-                "orders: RLS disabled\n"
-                "users: RLS enabled"
-            )
+        return [("orders", False), ("users", True)], True
     query = """
         SELECT relname, relrowsecurity
         FROM pg_class
@@ -280,6 +277,10 @@ def check_rls():
         with conn.cursor() as cur:
             cur.execute(query)
             rows = cur.fetchall()
+    return [(table, bool(enabled)) for table, enabled in rows], False
+
+
+def format_rls_status(rows, is_mock=False):
     if not rows:
         return "No tables found in public schema."
     lines = [f"{table}: RLS {'enabled' if enabled else 'disabled'}" for table, enabled in rows]
@@ -287,7 +288,16 @@ def check_rls():
     summary = "\n".join(lines)
     if missing:
         summary += f"\n\nTables without RLS: {', '.join(missing)}"
+    if is_mock:
+        summary = "[MOCK DATA — set SUPABASE_DB_URL to query your real project]\n" + summary
     return summary
+
+
+def check_rls():
+    """
+    Checks whether Row-Level Security (RLS) is enabled for each table in the public schema
+    """
+    return format_rls_status(*get_rls_status())
 
 
 # if __name__ == "__main__":

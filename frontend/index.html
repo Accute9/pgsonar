@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>pgsonar</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="ping" aria-hidden="true"></span>
+      <span class="name">pgsonar</span>
+      <span class="tag">AI data-quality agent for Postgres</span>
+    </div>
+    <div class="controls">
+      <label class="mock" title="Replay a scripted scan instead of calling the backend">
+        <input type="checkbox" id="mock"> Mock data
+      </label>
+      <span class="pill idle" id="status">Idle</span>
+      <button id="run" class="primary">Run scan</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel" aria-labelledby="trace-h">
+      <h2 id="trace-h">Agent trace</h2>
+      <div class="scroll" id="trace">
+        <p class="empty" id="trace-empty">Press <b>Run scan</b> to watch the agent investigate your database step by step.</p>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="find-h">
+      <h2 id="find-h">Findings</h2>
+      <div class="scroll" id="results">
+        <div class="stats">
+          <div class="stat"><span class="v" id="s-tables">0</span><span class="l">Tables scanned</span></div>
+          <div class="stat" id="stat-anoms"><span class="v" id="s-anoms">0</span><span class="l">Anomalies</span></div>
+          <div class="stat" id="stat-rls"><span class="v" id="s-rls">0</span><span class="l">RLS gaps</span></div>
+          <div class="stat"><span class="v" id="s-calls">0</span><span class="l">Tool calls</span></div>
+        </div>
+
+        <div id="rls-box" class="block" hidden>
+          <h3>Row-level security</h3>
+          <ul class="rls" id="rls-list"></ul>
+        </div>
+
+        <div class="block">
+          <h3>Anomalies</h3>
+          <p class="empty" id="find-empty">Findings appear here as the agent uncovers them.</p>
+          <div id="findings"></div>
+        </div>
+
+        <div id="report-box" class="block" hidden>
+          <h3>Agent report</h3>
+          <div class="report" id="report"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
