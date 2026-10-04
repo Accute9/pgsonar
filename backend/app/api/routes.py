@@ -16,7 +16,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5500"],
+    allow_origins=["http://127.0.0.1:5500", "https://pgsonar-frontend.vercel.app"],
     allow_credentials=True,
     allow_origin_regex="http://127.0.0.1:.*",
     allow_methods=["*"],

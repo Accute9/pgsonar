@@ -26,7 +26,8 @@
   "use strict";
 
   var params = new URLSearchParams(location.search);
-  var API = (params.get("api") || "").replace(/\/$/, "");
+  // var API = (params.get("api") || "").replace(/\/$/, "");
+  var API = "https://pgsonar.onrender.com";
 
   var $ = function (id) { return document.getElementById(id); };
   var els = {
