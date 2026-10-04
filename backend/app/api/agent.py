@@ -11,7 +11,7 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph import START, StateGraph, add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from mcp_tools import format_rls_status, get_rls_status, mcp
+from .mcp_tools import format_rls_status, get_rls_status, mcp
 
 load_dotenv()
 

@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 import asyncio
 import json
 import logging
-from agent import stream_agent
-from mcp_tools import get_schema
+from .agent import stream_agent
+from .mcp_tools import get_schema
 
 load_dotenv()
 log = logging.getLogger("pgsonar")
