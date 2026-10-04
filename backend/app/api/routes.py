@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from agent import stream_agent
+from mcp_tools import get_schema
 
 load_dotenv()
 log = logging.getLogger("pgsonar")
@@ -26,6 +27,17 @@ app.add_middleware(
 @app.get("/")
 def index():
     return {"message": "API is running"}
+
+@app.get("/schema")
+def schema():
+    tables, is_mock = get_schema()
+    return {
+        "is_mock": is_mock,
+        "tables": [
+            {"name": name, "columns": [{"name": c, "type": t} for c, t in cols]}
+            for name, cols in tables
+        ],
+    }
 
 @app.get("/scan")
 async def scan():

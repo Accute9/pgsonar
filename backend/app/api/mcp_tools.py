@@ -7,18 +7,20 @@ from psycopg2 import sql
 mcp = FastMCP("supabase-anomaly-checks")
 load_dotenv()
 
-@mcp.tool
-def list_tables():
+def get_schema():
     """
-    List all data tables in datbase
+    Returns ([(table_name, [(column_name, data_type), ...]), ...], is_mock) for the public schema.
+    Structured form of list_tables(), so callers can render it or format it for the model.
     """
     SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL")
     if not SUPABASE_DB_URL:
         return (
-                "[MOCK DATA — set SUPABASE_DB_URL to query your real pr oject]\n"
-                "orders(id: int, user_id: int, amount: numeric, created_at: timestamptz)\n"
-                "users(id: int, email: text, signup_date: date)"
-            )
+            [
+                ("orders", [("id", "int"), ("user_id", "int"), ("amount", "numeric"), ("created_at", "timestamptz")]),
+                ("users", [("id", "int"), ("email", "text"), ("signup_date", "date")]),
+            ],
+            True,
+        )
     query = """
         SELECT table_name, column_name, data_type
         FROM information_schema.columns
@@ -31,9 +33,23 @@ def list_tables():
             rows = cur.fetchall()
     tables = {}
     for table_name, column_name, data_type in rows:
-        tables.setdefault(table_name, []).append(f"{column_name}: {data_type}")
- 
-    return "\n".join(f"{t}({', '.join(cols)})" for t, cols in tables.items())
+        tables.setdefault(table_name, []).append((column_name, data_type))
+    return list(tables.items()), False
+
+
+def format_schema(tables, is_mock=False):
+    text = "\n".join(f"{t}({', '.join(f'{c}: {dt}' for c, dt in cols)})" for t, cols in tables)
+    if is_mock:
+        text = "[MOCK DATA — set SUPABASE_DB_URL to query your real project]\n" + text
+    return text
+
+
+@mcp.tool
+def list_tables():
+    """
+    List all data tables in datbase
+    """
+    return format_schema(*get_schema())
 
 # print(list_tables())
 
