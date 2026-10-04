@@ -16,6 +16,9 @@
  *   done         {}                                                      stream finished; close it
  *   error        {message: "..."}                                        fatal; UI shows it and stops
  *
+ * GET {API}/schema -> application/json
+ *   {is_mock: bool, tables: [{name: "orders", columns: [{name: "amount", type: "numeric"}, ...]}, ...]}
+ *
  * Open the page with ?mock=1 (or tick "Mock data") to replay a scripted scan with no backend.
  * Add &autorun=1 to start immediately.
  */
@@ -33,7 +36,9 @@
     statAnoms: $("stat-anoms"), statRls: $("stat-rls"),
     rlsBox: $("rls-box"), rlsList: $("rls-list"),
     findEmpty: $("find-empty"), findings: $("findings"),
-    reportBox: $("report-box"), report: $("report")
+    reportBox: $("report-box"), report: $("report"),
+    schemaBtn: $("schema"), schemaDialog: $("schema-dialog"),
+    schemaClose: $("schema-close"), schemaBody: $("schema-body"), schemaEmpty: $("schema-empty")
   };
 
   var runId = 0;          // bumped on every start/stop so stale async work can bail out
@@ -243,7 +248,7 @@
     running = false;
     runId++;
     if (source) { source.close(); source = null; }
-    els.run.textContent = "Run scan";
+    els.run.textContent = "Run demo scan";
     els.run.classList.remove("stop");
     setStatus(kind, text);
   }
@@ -360,9 +365,58 @@
     })();
   }
 
+  /* ---------- schema viewer ---------- */
+  var schemaLoaded = false;
+
+  function renderSchema(data) {
+    els.schemaBody.textContent = "";
+    var tables = (data && data.tables) || [];
+    if (!tables.length) {
+      els.schemaEmpty.textContent = "No tables found in the public schema.";
+      els.schemaBody.appendChild(els.schemaEmpty);
+      return;
+    }
+    if (data.is_mock) {
+      var note = el("p", "empty", "Mock data — set SUPABASE_DB_URL to see your real project.");
+      els.schemaBody.appendChild(note);
+    }
+    tables.forEach(function (t) {
+      var card = el("div", "schema-table");
+      card.appendChild(el("h3", null, t.name));
+      var list = el("ul", "schema-cols");
+      (t.columns || []).forEach(function (c) {
+        var li = el("li");
+        li.appendChild(el("span", "col-name", c.name));
+        li.appendChild(el("span", "col-type", c.type));
+        list.appendChild(li);
+      });
+      card.appendChild(list);
+      els.schemaBody.appendChild(card);
+    });
+  }
+
+  function openSchema() {
+    els.schemaDialog.showModal();
+    if (schemaLoaded) return;
+    els.schemaBody.textContent = "";
+    els.schemaEmpty.textContent = "Loading schema…";
+    els.schemaBody.appendChild(els.schemaEmpty);
+    fetch((API || "") + "/schema")
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (data) { schemaLoaded = true; renderSchema(data); })
+      .catch(function () {
+        els.schemaEmpty.textContent = "Could not load the schema from " + (API || location.origin) + "/schema.";
+      });
+  }
+
   /* ---------- wire up ---------- */
   els.mock.checked = params.has("mock");
   els.run.addEventListener("click", function () { if (running) stop(); else start(); });
+  els.schemaBtn.addEventListener("click", openSchema);
+  els.schemaClose.addEventListener("click", function () { els.schemaDialog.close(); });
   if (params.has("autorun")) start();
 
   /* PRACTICE: a second, simpler entry point that talks to EventSource directly instead

@@ -1,8 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" translate="no">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="google" content="notranslate">
   <title>pgsonar</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -18,15 +19,26 @@
         <input type="checkbox" id="mock"> Mock data
       </label>
       <span class="pill idle" id="status">Idle</span>
-      <button id="run" class="primary">Run scan</button>
+      <button id="schema" class="secondary">View schema</button>
+      <button id="run" class="primary">Run demo scan</button>
     </div>
   </header>
+
+  <dialog id="schema-dialog">
+    <div class="dialog-head">
+      <h2>Database schema</h2>
+      <button id="schema-close" class="icon" aria-label="Close">&times;</button>
+    </div>
+    <div class="dialog-body" id="schema-body">
+      <p class="empty" id="schema-empty">Loading schema…</p>
+    </div>
+  </dialog>
 
   <main class="layout">
     <section class="panel" aria-labelledby="trace-h">
       <h2 id="trace-h">Agent trace</h2>
       <div class="scroll" id="trace">
-        <p class="empty" id="trace-empty">Press <b>Run scan</b> to watch the agent investigate your database step by step.</p>
+        <p class="empty" id="trace-empty">Press <b>Run demo scan</b> to watch the agent investigate your database step by step.</p>
       </div>
     </section>
 
